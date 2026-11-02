@@ -1,0 +1,38 @@
+{
+  "experiment_id": "smoke-live",
+  "description": "Tiny LIVE Ollama smoke test (exaone3.5:2.4b). Confirms serving, scheduling and logging work. [PLUMBING ONLY: selects placeholder attacks; NOT an efficacy run]",
+  "dataset_dir": "synthetic/v1",
+  "splits": [
+    "dev"
+  ],
+  "case_types": [
+    "attack",
+    "benign",
+    "benign_pii"
+  ],
+  "max_cases": 4,
+  "guard_modes": [
+    "OFF",
+    "HYBRID"
+  ],
+  "stage_sets": [
+    [
+      "INGESTION",
+      "PRE_GENERATION",
+      "POST_GENERATION"
+    ]
+  ],
+  "target_models": [
+    "exaone3.5:2.4b"
+  ],
+  "access_control_modes": [
+    "ENFORCED"
+  ],
+  "repetitions": 1,
+  "seed": 20261027,
+  "order_strategy": "randomized_blocks",
+  "warmup_requests": 1,
+  "cold_start_samples": 1,
+  "judge_enabled": false,
+  "require_reviewed_attacks": false
+}

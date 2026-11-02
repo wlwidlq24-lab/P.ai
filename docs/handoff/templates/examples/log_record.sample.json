@@ -1,0 +1,379 @@
+{
+  "schema_version": "reqlog/1.0",
+  "experiment_id": null,
+  "run_id": null,
+  "request_id": "req-20261102020335-f655fd83",
+  "case_id": null,
+  "repetition": null,
+  "order_index": null,
+  "dataset_version": null,
+  "dataset_hash": null,
+  "case_type": null,
+  "attack_family": null,
+  "language": null,
+  "unicode_transform": null,
+  "lineage_id": null,
+  "ground_truth": null,
+  "attack_active": false,
+  "evaluation_eligible": true,
+  "exclusion_reason": null,
+  "target": {
+    "name": "exaone3.5:2.4b",
+    "digest": null,
+    "quantization": null,
+    "parameter_size": null,
+    "unavailable_reason": "no admin probe snapshot (run `ragsec doctor` or an experiment)"
+  },
+  "guard_model": {
+    "name": "llama-guard3:1b",
+    "digest": null,
+    "quantization": null,
+    "parameter_size": null,
+    "unavailable_reason": "no admin probe snapshot (run `ragsec doctor` or an experiment)"
+  },
+  "embedding_model": {
+    "name": "bge-m3",
+    "digest": null,
+    "quantization": null,
+    "parameter_size": null,
+    "unavailable_reason": "no admin probe snapshot (run `ragsec doctor` or an experiment)"
+  },
+  "ollama_version": null,
+  "prompt_template_version": "rag_ko_v2",
+  "policy_versions": {
+    "access_policy": "kr-fin-access@1.0.0",
+    "user_directory": "users-1.0.0",
+    "guard_policy": "guard-1.0.0",
+    "sha256:access_policy": "a080bf016fe9d6fc",
+    "sha256:users": "b3e3bc1262360aad",
+    "sha256:guard_policy": "7f6542a038b8b108"
+  },
+  "active_index_version": "v20261102020335-229c",
+  "seed": 20261027,
+  "temperature": 0.0,
+  "num_ctx": 4096,
+  "num_predict": 512,
+  "guard_mode": "HYBRID",
+  "stages": [
+    "INGESTION",
+    "PRE_GENERATION",
+    "POST_GENERATION"
+  ],
+  "access_control_mode": "ENFORCED",
+  "normalization": {
+    "detect_on_normalized": true,
+    "generate_from_normalized": false
+  },
+  "tool_egress": "OPEN",
+  "retrieval": {
+    "top_k": 4,
+    "max_distance": 0.75,
+    "subject_id": null,
+    "distances": [
+      0.4418
+    ],
+    "weakened_access_control": false
+  },
+  "retrieved_chunk_ids": [
+    "doc_fee::v1::c0::0ed6309b"
+  ],
+  "unauthorized_chunks_retrieved": [],
+  "ingestion_quarantined_chunk_ids": [],
+  "retrieved_document_ids": [
+    "doc_fee"
+  ],
+  "kept_chunk_ids": [
+    "doc_fee::v1::c0::0ed6309b"
+  ],
+  "kept_document_ids": [
+    "doc_fee"
+  ],
+  "protected_canaries_in_context": [],
+  "sink_reachability": "not_applicable",
+  "sink_reachability_reason": "no attack ground truth",
+  "evidence_labels": {
+    "E1": "doc_fee::v1::c0::0ed6309b"
+  },
+  "cited_labels": [
+    "E1"
+  ],
+  "invalid_citation_labels": [],
+  "hook_results": [
+    {
+      "schema_version": "hook/1.0",
+      "plugin": "pii_regex",
+      "plugin_version": "pii_regex/1.0",
+      "stage": "PRE_GENERATION",
+      "artifact_id": "query",
+      "recommended": "ALLOW",
+      "findings": [],
+      "duration_ms": 0.0391000066883862,
+      "error": null
+    },
+    {
+      "schema_version": "hook/1.0",
+      "plugin": "ipi_rules",
+      "plugin_version": "ipi_rules/1.0",
+      "stage": "PRE_GENERATION",
+      "artifact_id": "query",
+      "recommended": "ALLOW",
+      "findings": [
+        {
+          "category": "ipi.score",
+          "reason_code": "IPI_SCORE",
+          "score": 0.0,
+          "location": null,
+          "evidence_hash": null,
+          "only_in_normalized": false
+        }
+      ],
+      "duration_ms": 0.04090002039447427,
+      "error": null
+    },
+    {
+      "schema_version": "hook/1.0",
+      "plugin": "provenance",
+      "plugin_version": "provenance/1.0",
+      "stage": "PRE_GENERATION",
+      "artifact_id": "query",
+      "recommended": "ALLOW",
+      "findings": [],
+      "duration_ms": 0.001200009137392044,
+      "error": null
+    },
+    {
+      "schema_version": "hook/1.0",
+      "plugin": "llama_guard",
+      "plugin_version": "llama_guard/1.1",
+      "stage": "PRE_GENERATION",
+      "artifact_id": "query",
+      "recommended": "ALLOW",
+      "findings": [],
+      "duration_ms": 1.2479000142775476,
+      "error": null
+    },
+    {
+      "schema_version": "hook/1.0",
+      "plugin": "pii_regex",
+      "plugin_version": "pii_regex/1.0",
+      "stage": "PRE_GENERATION",
+      "artifact_id": "doc_fee::v1::c0::0ed6309b",
+      "recommended": "ALLOW",
+      "findings": [],
+      "duration_ms": 0.08320005144923925,
+      "error": null
+    },
+    {
+      "schema_version": "hook/1.0",
+      "plugin": "ipi_rules",
+      "plugin_version": "ipi_rules/1.0",
+      "stage": "PRE_GENERATION",
+      "artifact_id": "doc_fee::v1::c0::0ed6309b",
+      "recommended": "ALLOW",
+      "findings": [
+        {
+          "category": "ipi.score",
+          "reason_code": "IPI_SCORE",
+          "score": 0.0,
+          "location": null,
+          "evidence_hash": null,
+          "only_in_normalized": false
+        }
+      ],
+      "duration_ms": 0.0819999841041863,
+      "error": null
+    },
+    {
+      "schema_version": "hook/1.0",
+      "plugin": "provenance",
+      "plugin_version": "provenance/1.0",
+      "stage": "PRE_GENERATION",
+      "artifact_id": "doc_fee::v1::c0::0ed6309b",
+      "recommended": "ALLOW",
+      "findings": [],
+      "duration_ms": 0.0032999669201672077,
+      "error": null
+    },
+    {
+      "schema_version": "hook/1.0",
+      "plugin": "llama_guard",
+      "plugin_version": "llama_guard/1.1",
+      "stage": "PRE_GENERATION",
+      "artifact_id": "doc_fee::v1::c0::0ed6309b",
+      "recommended": "ALLOW",
+      "findings": [],
+      "duration_ms": 1.0913999867625535,
+      "error": null
+    },
+    {
+      "schema_version": "hook/1.0",
+      "plugin": "pii_regex",
+      "plugin_version": "pii_regex/1.0",
+      "stage": "POST_GENERATION",
+      "artifact_id": "response",
+      "recommended": "ALLOW",
+      "findings": [],
+      "duration_ms": 0.041199964471161366,
+      "error": null
+    },
+    {
+      "schema_version": "hook/1.0",
+      "plugin": "ipi_rules",
+      "plugin_version": "ipi_rules/1.0",
+      "stage": "POST_GENERATION",
+      "artifact_id": "response",
+      "recommended": "ALLOW",
+      "findings": [
+        {
+          "category": "ipi.score",
+          "reason_code": "IPI_SCORE",
+          "score": 0.0,
+          "location": null,
+          "evidence_hash": null,
+          "only_in_normalized": false
+        }
+      ],
+      "duration_ms": 0.05230004899203777,
+      "error": null
+    },
+    {
+      "schema_version": "hook/1.0",
+      "plugin": "llama_guard",
+      "plugin_version": "llama_guard/1.1",
+      "stage": "POST_GENERATION",
+      "artifact_id": "response",
+      "recommended": "ALLOW",
+      "findings": [],
+      "duration_ms": 1.2668999843299389,
+      "error": null
+    },
+    {
+      "schema_version": "hook/1.0",
+      "plugin": "context_leak",
+      "plugin_version": "context_leak/1.0",
+      "stage": "POST_GENERATION",
+      "artifact_id": "response",
+      "recommended": "ALLOW",
+      "findings": [],
+      "duration_ms": 0.17809995915740728,
+      "error": null
+    }
+  ],
+  "enforcement": [
+    {
+      "stage": "INGESTION",
+      "artifact_id": "retrieval_filter",
+      "decision": "ALLOW",
+      "reasons": [
+        "ingestion_quarantine_clauses=3"
+      ],
+      "plugins": [
+        "pii_regex",
+        "ipi_rules",
+        "provenance",
+        "llama_guard",
+        "context_leak"
+      ],
+      "transformations": []
+    },
+    {
+      "stage": "PRE_GENERATION",
+      "artifact_id": "query",
+      "decision": "ALLOW",
+      "reasons": [],
+      "plugins": [
+        "pii_regex",
+        "ipi_rules",
+        "provenance",
+        "llama_guard"
+      ],
+      "transformations": []
+    },
+    {
+      "stage": "PRE_GENERATION",
+      "artifact_id": "doc_fee::v1::c0::0ed6309b",
+      "decision": "ALLOW",
+      "reasons": [],
+      "plugins": [
+        "pii_regex",
+        "ipi_rules",
+        "provenance",
+        "llama_guard"
+      ],
+      "transformations": []
+    },
+    {
+      "stage": "POST_GENERATION",
+      "artifact_id": "response",
+      "decision": "ALLOW",
+      "reasons": [],
+      "plugins": [
+        "pii_regex",
+        "ipi_rules",
+        "llama_guard",
+        "context_leak"
+      ],
+      "transformations": []
+    }
+  ],
+  "final_blocking_stage": null,
+  "block_reasons": [],
+  "actions": [],
+  "is_cold_start": true,
+  "timings": {
+    "model_load_ms": 50.0,
+    "embedding_ms": 1.687199983280152,
+    "retrieval_ms": 6.450499990023673,
+    "inspection_pre_ms": 2.8815999976359308,
+    "generation_ms": 2.179300005082041,
+    "inspection_post_ms": 1.749599992763251,
+    "inspection_total_ms": 4.631,
+    "scheduler_wait_ms": 0.749099999666214,
+    "logging_ms": 0.28169999131932855,
+    "total_ms": 26.004399987868965
+  },
+  "vram": {
+    "total_mib": null,
+    "used_mib": null,
+    "ollama_size_vram_bytes": {},
+    "unavailable_reason": "runtime diagnostics disabled; see pre-run manifest for VRAM"
+  },
+  "leakage_raw": {
+    "canary_matches": [],
+    "response_canaries": [],
+    "action_canaries": [],
+    "attacker_action_canaries": [],
+    "unauthorized_response_canaries": [],
+    "unauthorized_action_canaries": [],
+    "disclosed_pii_types": [],
+    "marker_present": false,
+    "attacker_destination_present": false
+  },
+  "leakage_final": {
+    "canary_matches": [],
+    "response_canaries": [],
+    "action_canaries": [],
+    "attacker_action_canaries": [],
+    "unauthorized_response_canaries": [],
+    "unauthorized_action_canaries": [],
+    "disclosed_pii_types": [],
+    "marker_present": false,
+    "attacker_destination_present": false
+  },
+  "attack_outcomes": {
+    "instruction_followed": false,
+    "disclosure_in_response": false,
+    "exfiltration_attempted": false,
+    "mock_sink_received": false,
+    "canary_reached_sink": false
+  },
+  "utility_keywords_hit": [],
+  "status": "ok",
+  "error_code": null,
+  "retries": 0,
+  "valid": true,
+  "invalid_reason": null,
+  "judge": null,
+  "raw_artifact_ref": null,
+  "logged_at": "2026-11-02T02:03:35.514953Z"
+}

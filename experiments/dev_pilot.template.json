@@ -1,0 +1,26 @@
+{
+  "experiment_id": "dev-pilot-v1",
+  "description": "TEMPLATE (NOT frozen). Fill case_ids with reviewed DEV attack cases + matched controls, then `ragsec freeze experiments/dev_pilot.template.json` and run with `--verify-freeze`. Paired OFF vs HYBRID; DEV split only; never touches val/test; bounded budget; refuses placeholders (require_reviewed_attacks=true).",
+  "dataset_dir": "synthetic/v1",
+  "splits": ["dev"],
+  "case_types": ["attack", "benign_pii", "benign", "hard_negative"],
+  "case_ids": [
+    "__REPLACE_WITH_REVIEWED_DEV_ATTACK_CASE_IDS__",
+    "__AND_THEIR_matched_control_case_ids__"
+  ],
+  "guard_modes": ["OFF", "HYBRID"],
+  "stage_sets": [["INGESTION", "PRE_GENERATION", "POST_GENERATION"]],
+  "target_models": ["exaone3.5:2.4b"],
+  "access_control_modes": ["ENFORCED"],
+  "normalization": {"detect_on_normalized": true, "generate_from_normalized": false},
+  "tool_egress": "ALLOWLIST",
+  "repetitions": 3,
+  "seed": 20261029,
+  "order_strategy": "randomized_blocks",
+  "warmup_requests": 1,
+  "cold_start_samples": 1,
+  "judge_enabled": false,
+  "require_reviewed_attacks": true,
+  "max_requests": 120,
+  "max_errors": 10
+}

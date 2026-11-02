@@ -1,0 +1,11 @@
+{
+  "schema_version": "hook/1.0",
+  "plugin": "pii_regex",
+  "plugin_version": "pii_regex/1.0",
+  "stage": "PRE_GENERATION",
+  "artifact_id": "query",
+  "recommended": "ALLOW",
+  "findings": [],
+  "duration_ms": 0.0391000066883862,
+  "error": null
+}

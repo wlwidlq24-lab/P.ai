@@ -1,0 +1,42 @@
+schema_version: policy/1.0
+policy_id: kr-fin-access
+policy_version: "1.0.0"
+status: approved
+approved_by: legal_researcher@example.local
+approved_at: "2026-10-27T09:00:00+09:00"
+legal_basis_refs:
+  # Placeholders — the Legal role (Role 1) must replace these with reviewed citations.
+  - "PIPA(개인정보 보호법) art.15,17,18 — PLACEHOLDER, pending legal review"
+  - "Credit Information Use and Protection Act(신용정보법) art.32,33 — PLACEHOLDER"
+  - "내부 정보보호 지침 v?? — PLACEHOLDER"
+reviewer_notes: >
+  Illustrative mapping for the MVP. Grades: general<credit<unique_id<sensitive. Disclosable types are those a
+  role's agent may return UNMASKED. All action destinations are simulated (internal:// / mock-sink://).
+tenants:
+  - bank_a
+  - bank_b
+roles:
+  teller:
+    description: 창구 직원 — 담당 고객의 일반/신용 정보 조회
+    max_pii_grade: credit
+    disclosable_pii_types: [name, phone, account_number]
+    allowed_action_destinations: ["internal://case-system"]
+    allowed_purposes: [account_inquiry, customer_service]
+  credit_officer:
+    description: 여신 심사역 — 신용정보 포함 심사
+    max_pii_grade: credit
+    disclosable_pii_types: [name, phone, account_number, credit_info]
+    allowed_action_destinations: ["internal://case-system", "internal://credit-review"]
+    allowed_purposes: [credit_assessment]
+  compliance:
+    description: 준법감시 — 고유식별정보까지 열람 가능
+    max_pii_grade: unique_id
+    disclosable_pii_types: [name, phone, account_number, credit_info, rrn]
+    allowed_action_destinations: ["internal://case-system", "internal://audit-log"]
+    allowed_purposes: [audit, investigation]
+  general_staff:
+    description: 일반 직원 — 비식별/일반 문서만
+    max_pii_grade: general
+    disclosable_pii_types: [name]
+    allowed_action_destinations: ["internal://case-system"]
+    allowed_purposes: [general_inquiry]

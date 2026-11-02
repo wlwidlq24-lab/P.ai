@@ -1,0 +1,5 @@
+{
+  "access_policy": "access_policy.yaml",
+  "users": "users.yaml",
+  "guard_policy": "guard_policy.yaml"
+}

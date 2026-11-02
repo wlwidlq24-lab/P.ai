@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+var/
+.pytest_cache/
+data/synthetic/*/documents/
+# keep dataset manifests/jsonl but not regenerated chroma or logs
+# staged, unreviewed attack candidates stay out of version control (synthetic IPI scaffolding)
+data/staging/
+# per-user auth store (SHA-256 token hashes) is never committed
+policies/principals.json
+policies/active.previous.json

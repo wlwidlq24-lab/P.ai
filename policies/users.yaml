@@ -1,0 +1,10 @@
+schema_version: policy/1.0
+directory_version: "users-1.0.0"
+# All users are synthetic. tenant_id and role must exist in access_policy.yaml (cross-validated on load).
+users:
+  - { user_id: u_teller_a,    display_name: "김창구 (teller, bank_a)",      role: teller,         tenant_id: bank_a, synthetic: true }
+  - { user_id: u_credit_a,    display_name: "이여신 (credit, bank_a)",      role: credit_officer, tenant_id: bank_a, synthetic: true }
+  - { user_id: u_comp_a,      display_name: "박준법 (compliance, bank_a)",  role: compliance,     tenant_id: bank_a, synthetic: true }
+  - { user_id: u_staff_a,     display_name: "최일반 (staff, bank_a)",       role: general_staff,  tenant_id: bank_a, synthetic: true }
+  - { user_id: u_teller_b,    display_name: "정창구 (teller, bank_b)",      role: teller,         tenant_id: bank_b, synthetic: true }
+  - { user_id: u_comp_b,      display_name: "한준법 (compliance, bank_b)",  role: compliance,     tenant_id: bank_b, synthetic: true }

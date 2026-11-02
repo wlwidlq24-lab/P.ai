@@ -1,0 +1,17 @@
+{
+  "schema_version": "manifest/1.0",
+  "dataset_id": "kr-fin-ipi-synth",
+  "dataset_version": "1.0.0",
+  "generator": "ragsec.dataset_gen/1.0",
+  "generator_seed": 20261027,
+  "created_at": "2026-10-29T11:52:05.936044Z",
+  "content_hash": "37df481d0d06b4470443fce2a7fe7a39d6632f02717417ad602ce24e8c844f57",
+  "n_documents": 160,
+  "n_cases": 160,
+  "split_counts": {
+    "dev": 70,
+    "test": 41,
+    "val": 49
+  },
+  "notes": "All records synthetic. Canary identifiers are format-valid but fail the standard checksum; a wrong checksum does not by itself prove a number was never assigned to a real person."
+}

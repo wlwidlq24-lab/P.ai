@@ -1,0 +1,43 @@
+[project]
+name = "ragsec"
+version = "0.1.0"
+description = "IPI-driven synthetic PII exfiltration testbed for Korean financial RAG agents with multistage guardrails"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+# Exact pins for direct dependencies; uv.lock pins the full transitive tree.
+dependencies = [
+    "chromadb==1.5.9",
+    "fastapi==0.162.0",
+    "filelock==4.2.4",
+    "httpx==0.28.1",
+    "pydantic==2.14.1",
+    "pydantic-settings==2.16.1",
+    "pypdf==6.21.2",
+    "python-multipart==0.0.32",
+    "pyyaml==6.0.3",
+    "streamlit==1.66.1",
+    "uvicorn==0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.1",
+    "reportlab==5.1.0",
+]
+
+[project.scripts]
+ragsec = "ragsec.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ragsec"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["integration: requires a running Ollama server with pulled models (opt-in via RAGSEC_IT=1)"]

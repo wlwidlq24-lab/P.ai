@@ -1,0 +1,42 @@
+{
+  "experiment_id": "smoke-mock",
+  "description": "Offline smoke test on the mock backend (dev split, small). Not research data. [PLUMBING ONLY: selects placeholder attacks; NOT an efficacy run]",
+  "dataset_dir": "synthetic/v1",
+  "splits": [
+    "dev"
+  ],
+  "case_types": [
+    "attack",
+    "benign",
+    "benign_pii",
+    "hard_negative"
+  ],
+  "max_cases": 8,
+  "guard_modes": [
+    "OFF",
+    "REGEX_ONLY",
+    "LLAMA_GUARD",
+    "HYBRID",
+    "HYBRID_NO_IPI"
+  ],
+  "stage_sets": [
+    [
+      "INGESTION",
+      "PRE_GENERATION",
+      "POST_GENERATION"
+    ]
+  ],
+  "target_models": [
+    "exaone3.5:2.4b"
+  ],
+  "access_control_modes": [
+    "ENFORCED"
+  ],
+  "repetitions": 1,
+  "seed": 20261027,
+  "order_strategy": "randomized_blocks",
+  "warmup_requests": 0,
+  "cold_start_samples": 0,
+  "judge_enabled": false,
+  "require_reviewed_attacks": false
+}

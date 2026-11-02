@@ -1,0 +1,23 @@
+{
+  "schema_version": "doc-meta/1.1",
+  "document_id": "CHANGE_ME_id",
+  "document_version": 1,
+  "source_name": "[문서 제목]",
+  "source_type": "internal_wiki",
+  "source_trust_level": "high",
+  "document_kind": "internal_policy",
+  "jurisdiction": "KR",
+  "law_or_policy_id": "privacy-policy",
+  "issuing_organization": null,
+  "source_url": null,
+  "publication_date": null,
+  "review_status": "draft",
+  "effective_from": null,
+  "effective_to": null,
+  "supersedes_document_id": null,
+  "pii_grade": "none",
+  "pii_types": [],
+  "tenant_id": "bank_a",
+  "allowed_roles": ["compliance"],
+  "subject_id": null
+}

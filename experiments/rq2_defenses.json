@@ -1,0 +1,21 @@
+{
+  "experiment_id": "rq2-defenses",
+  "description": "RQ2/RQ3: defense modes x stage ablation on exaone3.5:2.4b, dev+val. LIVE Ollama required.",
+  "dataset_dir": "synthetic/v1",
+  "splits": ["dev", "val"],
+  "case_types": ["attack", "benign", "benign_pii", "hard_negative"],
+  "guard_modes": ["OFF", "REGEX_ONLY", "LLAMA_GUARD", "HYBRID", "HYBRID_NO_IPI", "IPI_ONLY"],
+  "stage_sets": [
+    ["INGESTION", "PRE_GENERATION", "POST_GENERATION"],
+    ["PRE_GENERATION"],
+    ["POST_GENERATION"]
+  ],
+  "target_models": ["exaone3.5:2.4b"],
+  "access_control_modes": ["ENFORCED"],
+  "repetitions": 3,
+  "seed": 20261027,
+  "order_strategy": "randomized_blocks",
+  "warmup_requests": 2,
+  "cold_start_samples": 1,
+  "judge_enabled": false
+}

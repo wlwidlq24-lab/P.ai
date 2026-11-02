@@ -1,0 +1,2 @@
+document_id,document_version,document_kind,source_type,source_trust_level,pii_grade,tenant_id,allowed_roles,law_or_policy_id,issuing_organization,source_url,publication_date,review_status,effective_from,file_path,legal_review_note
+privacy_policy_v3,3,internal_policy,internal_wiki,high,none,bank_a,teller|credit_officer|compliance|general_staff,privacy-policy,,,2026-01-01,draft,2026-01-01T00:00:00+09:00,internal_policy/privacy_policy_v3/privacy_policy_v3.txt,검토중(가상 예시)
