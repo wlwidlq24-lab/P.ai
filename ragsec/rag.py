@@ -19,7 +19,10 @@ from .config import Settings
 from .errors import (
     AuthorizationFilterMissingError, DeadlineExceededError, ModelTimeoutError, RagSecError, ResourceExhaustedError,
 )
-from .evaluation import Channel, canaries_in_text, keyword_hits, mask_for_log, measure, sanitize_ground_truth
+from .evaluation import (
+    Channel, authorization_window_active, canaries_in_text, evaluate_atom_disclosure, keyword_hits, mask_for_log,
+    measure, sanitize_ground_truth,
+)
 from .guards.base import GuardPlugin, InspectionContext
 from .judge import GeminiJudge
 from .guards.modes import plugins_for
@@ -28,6 +31,7 @@ from .guards.runner import Enforcer, run_stage
 from .llm.base import LLMClient
 from .logstore import JsonlWriter, RawArtifactStore
 from .policy import PolicyBundle
+from .disclosure import evaluate_disclosure
 from .reachability import structural_sink_reachability
 from .scheduler import ModelScheduler
 from .schemas import (
@@ -176,6 +180,10 @@ class RagService:
         protected_canaries_in_context: list[str] = []  # eval-only: canary IDs actually present in the prompt
         action_records: list[ActionRecord] = []
         raw_text: str | None = None
+        resp_text = ""                 # parsed (pre-transformation) response text, for eval-only atom accounting
+        actions: list = []             # parsed (pre-gating) actions, for eval-only atom accounting
+        atom_disclosure: dict = {}     # eval-only per-atom disclosure vs the case oracle (ids only)
+        disclosure_enforcement: dict = {}  # TRUSTED runtime decision trace (types only; never gt/oracle)
         final_answer = NO_EVIDENCE_ANSWER
         blocked_stage: HookStage | None = None
         block_reasons: list[str] = []
@@ -318,12 +326,45 @@ class RagService:
                     # A blocking citation (citation_policy=block) or any POST-stage response BLOCK must prevent
                     # pending actions. This runs before tool execution so no action can execute before all
                     # applicable pre-execution checks pass. Proposals remain observable (recorded as not executed).
+                    candidate = final_resp or NO_EVIDENCE_ANSWER
                     if blocked_stage is None and label_to_chunk:
-                        candidate = final_resp or NO_EVIDENCE_ANSWER
                         citations, invalid_citations, uncited_labels = resolve_citations(candidate, label_to_chunk)
                         if invalid_citations and self.s.citation_policy == "block":
                             blocked_stage = HookStage.POST_GENERATION
                             block_reasons.append("INVALID_CITATION")
+
+                    # ---- bounded, TRUSTED generated-artifact re-validation (pre-execution enforcement) ----
+                    # The decision uses ONLY trusted inputs: the authenticated role's disclosure policy + the
+                    # request's operational context (recipient/purpose/channel/as_of/evidence) + a detector on the
+                    # TRANSFORMED output. It NEVER reads ground truth or the case oracle (proved by the
+                    # oracle-isolation test). DENY => unauthorized; HOLD => unresolved/conditional unmet. Both
+                    # block before any action executes and prevent streaming protected output (fail-closed).
+                    # Bounded: a single re-check of the already-transformed artifacts (no transform loop).
+                    enforce = req.enforcement_profile == "enforced" or self.s.revalidate_transformed_output
+                    if blocked_stage is None and enforce:
+                        channels: list[tuple[str, str, str | None]] = [("response", candidate, req.channel or "response")]
+                        for i, a in enumerate(actions):
+                            channels.append((f"action{i}", action_texts[i], a.destination))
+                        worst = "ALLOW"
+                        traces = []
+                        for name, text, chan in channels:
+                            types = {m.pii_type.value for m in detect_pii(normalize(text).text)}
+                            dec = evaluate_disclosure(types, role_policy=role_policy, recipient=req.recipient,
+                                                      purpose=req.purpose, channel=chan, as_of=as_of,
+                                                      evidence=req.disclosure_evidence)
+                            traces.append({"channel": name, "decision": dec.decision, "allowed": dec.allowed_types,
+                                           "held": dec.held_types, "denied": dec.denied_types, "trace": dec.trace})
+                            if dec.decision == "DENY":
+                                worst = "DENY"
+                            elif dec.decision == "HOLD" and worst != "DENY":
+                                worst = "HOLD"
+                        disclosure_enforcement = {"enforced": True, "decision": worst, "channels": traces}
+                        if worst == "DENY":
+                            blocked_stage = HookStage.POST_GENERATION
+                            block_reasons.append("UNAUTHORIZED_DISCLOSURE_REVALIDATION")
+                        elif worst == "HOLD":
+                            blocked_stage = HookStage.POST_GENERATION
+                            block_reasons.append("DISCLOSURE_HELD")
 
                     if blocked_stage is not None:
                         final_answer = BLOCKED_ANSWER
@@ -381,6 +422,18 @@ class RagService:
         # Citations and any citation-policy block are resolved BEFORE action execution (see the generation
         # branch above), so final_channels here already reflect the authorized actions only.
         leak_final = _measure(final_channels)
+        # Evaluation-only per-atom disclosure accounting vs the case oracle (ids only; populated only when the
+        # case declares information atoms + an oracle). Does not affect control flow.
+        if exp is not None and gt is not None and exp.case.disclosure_oracle is not None and gt.information_atoms:
+            final_resp_text = final_channels[0].text if final_channels else final_answer
+            final_action_bodies = [ch.text for ch in final_channels[1:]]
+            post_transformed = any(e.stage == HookStage.POST_GENERATION and e.decision in (Decision.REDACT, Decision.BLOCK)
+                                   for e in enforcement)
+            atom_disclosure = evaluate_atom_disclosure(
+                final_resp_text, final_action_bodies, oracle=exp.case.disclosure_oracle,
+                atoms=gt.information_atoms, authorization_active=authorization_window_active(case_authz, as_of),
+                raw_response_text=resp_text, raw_action_bodies=[a.body for a in actions],
+                post_transformed=post_transformed)
         # Summed inspection-stage duration recorded separately from generation/total (RQ5).
         timings.inspection_total_ms = round((timings.inspection_pre_ms or 0.0) + (timings.inspection_post_ms or 0.0), 3)
         # Separated attack outcomes (a destination string in a response is NOT proof of transmission):
@@ -408,6 +461,9 @@ class RagService:
         record.invalid_citation_labels = invalid_citations
         record.sink_reachability = sink_reach
         record.sink_reachability_reason = sink_reach_reason
+        record.atom_disclosure = atom_disclosure
+        record.enforcement_profile = req.enforcement_profile
+        record.disclosure_enforcement = disclosure_enforcement
         if exp is not None and exp.judge_enabled and self.judge is not None and status == "ok" and not gt.is_attack:
             record.judge = await self.judge.judge(req.query, final_answer, gt)
         if self.raw_store.enabled and exp is not None:
@@ -463,7 +519,8 @@ class RagService:
             dataset_version=exp.dataset_version if exp else None, dataset_hash=exp.dataset_hash if exp else None,
             case_type=case.case_type if case else None, attack_family=case.attack_family if case else None,
             language=case.language if case else None, unicode_transform=case.unicode_transform if case else None,
-            lineage_id=case.lineage_id if case else None, ground_truth=sanitize_ground_truth(gt),
+            lineage_id=case.lineage_id if case else None,
+            base_workflow_id=case.base_workflow_id if case else None, ground_truth=sanitize_ground_truth(gt),
             attack_active=attack_active, evaluation_eligible=eligible, exclusion_reason=excl,
             attack_outcomes=outcomes,
             target=self.provenance(model), guard_model=self.provenance(self.s.guard_model),

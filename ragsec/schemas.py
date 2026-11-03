@@ -350,6 +350,33 @@ class ChunkMetadata(BaseModel):
 # =============================================================================
 # Legal -> Backend : executable policies (versioned, validated before activation)
 # =============================================================================
+class DisclosureRule(BaseModel):
+    """TRUSTED runtime disclosure rule (part of the versioned, Legal-authored access policy). Decides which PII
+    TYPES a role may disclose to a given recipient/purpose/channel within a validity window, optionally gated by
+    conditional predicates. This is ENFORCEMENT policy evaluated at runtime from the AUTHENTICATED context and the
+    request's operational facts (recipient/purpose/channel/time/evidence). It is deliberately SEPARATE from the
+    per-case evaluation oracle (DisclosureOracle/GroundTruth), which must never drive a runtime decision."""
+    model_config = ConfigDict(extra="forbid")
+    recipient: str | None = None   # None = matches any recipient
+    purpose: str | None = None     # None = matches any purpose
+    channel: str | None = None     # None = matches any channel (e.g. "response", "internal://case-system")
+    allowed_pii_types: list[PiiType] = Field(default_factory=list)
+    effective_from: datetime | None = None   # authorization validity window (actor/recipient grant, NOT doc validity)
+    effective_to: datetime | None = None
+    conditional_predicates: list[str] = Field(default_factory=list)  # predicate IDs; unmet/unsupported => HELD
+
+    @field_validator("effective_from", "effective_to")
+    @classmethod
+    def _aware(cls, v: datetime | None) -> datetime | None:
+        return ensure_aware(v) if v is not None else None
+
+    @model_validator(mode="after")
+    def _window(self) -> "DisclosureRule":
+        if self.effective_from and self.effective_to and self.effective_to <= self.effective_from:
+            raise ValueError("effective_to must be after effective_from")
+        return self
+
+
 class RolePolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
     description: str
@@ -359,6 +386,9 @@ class RolePolicy(BaseModel):
     # Action destinations this role's agent may send data to (all simulated; never network).
     allowed_action_destinations: list[str] = Field(default_factory=list)
     allowed_purposes: list[str] = Field(default_factory=list)
+    # TRUSTED recipient/purpose/channel/time disclosure rules (optional). When present they refine the flat
+    # disclosable_pii_types for runtime enforcement; when absent, enforcement falls back to disclosable_pii_types.
+    disclosure_rules: list[DisclosureRule] = Field(default_factory=list)
 
 
 class AccessPolicy(BaseModel):
@@ -553,6 +583,17 @@ class QueryRequest(BaseModel):
     # Simulated tool egress: OPEN = any mock-sink:// or internal:// destination is executed;
     # ALLOWLIST = only the role's allowed_action_destinations. Real network egress is never possible.
     tool_egress: Literal["OPEN", "ALLOWLIST"] = "OPEN"
+    # --- TRUSTED operational context for runtime disclosure enforcement (NOT evaluation labels) ---
+    # recipient/purpose/channel are operational facts about THIS request (like user_id), used by the trusted
+    # disclosure policy. disclosure_evidence carries trusted boolean facts for conditional predicates.
+    recipient: str | None = None
+    purpose: str | None = None
+    channel: str | None = None
+    disclosure_evidence: dict[str, bool] = Field(default_factory=dict)
+    # Enforcement profile: "measurement_only" observes/measures without the disclosure-revalidation gate;
+    # "enforced" turns on pre-execution disclosure revalidation. Mandatory controls (authentication, retrieval
+    # authorization, local-only execution, fixed transport) are ON in BOTH profiles. Available != enabled.
+    enforcement_profile: Literal["measurement_only", "enforced"] = "measurement_only"
 
     @field_validator("as_of")
     @classmethod
@@ -661,11 +702,76 @@ class AttackObjective(StrEnum):
     MARKER_ONLY = "marker_only"            # pure instruction compliance (no PII objective)
 
 
+class InformationAtom(BaseModel):
+    """PROPOSED (evaluation-only, 2026-11-03): an explicit synthetic unit of information with a stable id and
+    the surface representations the dataset actually supports detecting. Never shown to the model; used only by
+    the evaluation oracle. Representations are synthetic values/forms (not a claim of comprehensive leakage,
+    paraphrase or inference detection — see DisclosureOracle)."""
+    model_config = ConfigDict(extra="forbid")
+    atom_id: str
+    category: str                                   # e.g. "rrn", "account_number", "credit_info"
+    representations: list[str] = Field(default_factory=list)  # explicit supported surface forms (synthetic)
+    pii_type: str | None = None
+
+
+class DisclosureOracle(BaseModel):
+    """PROPOSED (evaluation-only, 2026-11-03; decision states extended 2026-11-03 per the Legal law-grounded
+    revision): per-condition oracle classifying InformationAtoms for disclosure UNDER THIS CASE'S authorization
+    context. EVALUATION oracle only — separate from enforcement policy, never a model hint.
+
+    Decision states (the four atom-id buckets are mutually exclusive) map the Legal document's
+    `disclosure_decision`:
+      allowed_atom_ids      -> ALLOW        (confirmed permitted in this context)
+      prohibited_atom_ids   -> DENY         (confirmed prohibited)
+      conditional_atom_ids  -> CONDITIONAL  (permitted only if stated conditions hold; held, NOT confirmed ALLOW/DENY)
+      unresolved_atom_ids   -> UNRESOLVED   (legal question open; held pending — MUST NOT be scored as DENY)
+    Orthogonal axes (NOT a disclosure permission by themselves):
+      required_atom_ids       -> task_required: task-essential info. required ⊆ allowed (necessity is not a legal basis).
+      legal_obligation_atom_ids -> a statutory DUTY to provide/notify (distinct from task necessity).
+      permitted_forms         -> representation: accepted alternative/masked forms for a required atom.
+    """
+    model_config = ConfigDict(extra="forbid")
+    allowed_atom_ids: list[str] = Field(default_factory=list)       # ALLOW
+    prohibited_atom_ids: list[str] = Field(default_factory=list)    # DENY
+    conditional_atom_ids: list[str] = Field(default_factory=list)   # CONDITIONAL (held)
+    unresolved_atom_ids: list[str] = Field(default_factory=list)    # UNRESOLVED (held; never counted as DENY)
+    required_atom_ids: list[str] = Field(default_factory=list)      # task-essential; empty_required handled explicitly
+    legal_obligation_atom_ids: list[str] = Field(default_factory=list)  # statutory duty to provide (≠ task_required)
+    permitted_forms: dict[str, list[str]] = Field(default_factory=dict)  # atom_id -> accepted alternative forms
+
+    @model_validator(mode="after")
+    def _consistency(self) -> "DisclosureOracle":
+        buckets = {"allowed": set(self.allowed_atom_ids), "prohibited": set(self.prohibited_atom_ids),
+                   "conditional": set(self.conditional_atom_ids), "unresolved": set(self.unresolved_atom_ids)}
+        names = list(buckets)
+        for i in range(len(names)):
+            for j in range(i + 1, len(names)):
+                overlap = buckets[names[i]] & buckets[names[j]]
+                if overlap:
+                    raise ValueError(f"atoms classified as BOTH {names[i]} and {names[j]} "
+                                     f"(impossible ground truth): {sorted(overlap)}")
+        req = set(self.required_atom_ids)
+        if req - buckets["allowed"]:
+            # Necessity is not a legal basis: a task-required atom must be a CONFIRMED allowed disclosure.
+            raise ValueError(f"required atoms must be confirmed-allowed (ALLOW): {sorted(req - buckets['allowed'])}")
+        oblig = set(self.legal_obligation_atom_ids)
+        if oblig & buckets["prohibited"]:
+            raise ValueError(f"legal-obligation atoms conflict with a DENY (resolve the legal conflict explicitly): "
+                             f"{sorted(oblig & buckets['prohibited'])}")
+        return self
+
+
 class CaseAuthorization(BaseModel):
     """Explicit per-case authorization context (2.2): separates ACCESS authorization (what the actor may
     retrieve) from DISCLOSURE authorization (to whom/which channel the actor may reveal it). An authorized
     actor is one valid condition for isolating prohibited-channel disclosure, not a prerequisite for every IPI
-    experiment."""
+    experiment.
+
+    recipient/channel/trusted_policy_version and the authorization validity window are PROPOSED (2026-11-03)
+    optional fields for matched recipient/purpose/channel evaluation. They are additive and backward compatible.
+    The authorization window is the ACTOR/RECIPIENT authorization validity (e.g. staff transfer / expired access),
+    which is DISTINCT from a document's effective_from/to (legal validity of the document). It is evaluated as
+    `[authorization_effective_from, authorization_effective_to)` against the request `as_of`."""
     model_config = ConfigDict(extra="forbid")
     actor_role: str
     accessible_pii_grades: list[str] = Field(default_factory=list)   # ACCESS authorization (retrieval)
@@ -673,6 +779,24 @@ class CaseAuthorization(BaseModel):
     authorized_destinations: list[str] = Field(default_factory=list)        # DISCLOSURE auth (action channels)
     permitted_purpose: str | None = None
     prohibited_behavior: str | None = None  # what the attacker seeks (e.g. "exfil RRN to attacker sink")
+    # --- PROPOSED matched-authorization fields (optional; evaluation/condition metadata, backward compatible) ---
+    recipient: str | None = None              # the disclosure recipient being evaluated (distinct from actor_role)
+    channel: str | None = None                # labelled disclosure channel (e.g. "response", "internal://case-system")
+    trusted_policy_version: str | None = None  # the trusted disclosure-policy version this oracle was authored for
+    authorization_effective_from: datetime | None = None  # ACTOR/RECIPIENT auth validity window (NOT document validity)
+    authorization_effective_to: datetime | None = None
+
+    @field_validator("authorization_effective_from", "authorization_effective_to")
+    @classmethod
+    def _aware(cls, v: datetime | None) -> datetime | None:
+        return ensure_aware(v) if v is not None else None
+
+    @model_validator(mode="after")
+    def _window(self) -> "CaseAuthorization":
+        f, t = self.authorization_effective_from, self.authorization_effective_to
+        if f and t and t <= f:
+            raise ValueError("authorization_effective_to must be after authorization_effective_from")
+        return self
 
 
 class GroundTruth(BaseModel):
@@ -689,6 +813,9 @@ class GroundTruth(BaseModel):
     expected_answer_keywords: list[str] = Field(default_factory=list)
     attack_document_ids: list[str] = Field(default_factory=list)
     observable_success_criteria: str | None = None  # human-readable success definition for the reviewer
+    # PROPOSED (2026-11-03, evaluation-only): explicit synthetic information atoms this case reasons about.
+    # Never shown to the model; representations are redacted before logging (see sanitize_ground_truth).
+    information_atoms: list[InformationAtom] = Field(default_factory=list)
 
 
 class CaseReview(BaseModel):
@@ -706,6 +833,10 @@ class Case(BaseModel):
     schema_version: Literal["case/1.0"] = CASE_SCHEMA_VERSION
     case_id: str
     lineage_id: str
+    # PROPOSED (2026-11-03, optional): a base financial-workflow id grouping all authorization variants and
+    # benign/attack pairs of the SAME underlying task. lineage_id already pins split isolation; base_workflow_id
+    # groups matched-authorization variants for counterfactual analysis. Defaults to None (backward compatible).
+    base_workflow_id: str | None = None
     split: Literal["dev", "val", "test"]
     case_type: CaseType
     attack_family: str | None = None
@@ -722,7 +853,23 @@ class Case(BaseModel):
     evaluation_eligible: bool = False
     exclusion_reason: str | None = None
     authorization: CaseAuthorization | None = None
+    # PROPOSED (2026-11-03, evaluation-only): per-condition atom oracle. Separate from enforcement policy.
+    disclosure_oracle: DisclosureOracle | None = None
     review: CaseReview | None = None
+
+    @model_validator(mode="after")
+    def _oracle_atoms_exist(self) -> "Case":
+        # When both are present, oracle atom ids must refer to declared information atoms (no dangling ids).
+        if self.disclosure_oracle is not None and self.ground_truth.information_atoms:
+            declared = {a.atom_id for a in self.ground_truth.information_atoms}
+            o = self.disclosure_oracle
+            referenced = (set(o.allowed_atom_ids) | set(o.prohibited_atom_ids) | set(o.conditional_atom_ids)
+                          | set(o.unresolved_atom_ids) | set(o.required_atom_ids)
+                          | set(o.legal_obligation_atom_ids) | set(o.permitted_forms))
+            missing = referenced - declared
+            if missing:
+                raise ValueError(f"case {self.case_id}: oracle references undeclared atom ids {sorted(missing)}")
+        return self
 
     @model_validator(mode="after")
     def _eligibility_requires_review(self) -> "Case":
@@ -772,6 +919,10 @@ class ExperimentManifest(BaseModel):
     normalization: NormalizationOptions = Field(default_factory=NormalizationOptions)
     tool_egress: Literal["OPEN", "ALLOWLIST"] = "OPEN"
     markdown_image_egress: bool = False   # explicit experimental condition (see QueryRequest)
+    # Enforcement profile for the whole run; written to every record. "measurement_only" (default) observes the
+    # trusted disclosure decision WITHOUT gating; "enforced" turns on pre-execution disclosure revalidation.
+    # Mandatory controls (auth, retrieval authz, local-only, transport) stay ON in both. Available != enabled.
+    enforcement_profile: Literal["measurement_only", "enforced"] = "measurement_only"
     repetitions: int = Field(default=1, ge=1, le=10)
     seed: int = 20261027
     order_strategy: OrderStrategy = OrderStrategy.RANDOMIZED_BLOCKS
@@ -860,6 +1011,7 @@ class RequestRecord(BaseModel):
     language: str | None = None
     unicode_transform: str | None = None
     lineage_id: str | None = None
+    base_workflow_id: str | None = None  # PROPOSED: matched-authorization grouping key (counterfactual metric)
     ground_truth: dict[str, Any] | None = None  # canary values replaced by ids before logging
     attack_active: bool = False                 # is this an active attack (not placeholder-only)?
     evaluation_eligible: bool = True            # counts toward attack-efficacy metrics?
@@ -898,6 +1050,14 @@ class RequestRecord(BaseModel):
     evidence_labels: dict[str, str] = Field(default_factory=dict)        # label -> chunk_id placed in context
     cited_labels: list[str] = Field(default_factory=list)                # labels validly cited by the answer
     invalid_citation_labels: list[str] = Field(default_factory=list)     # labels cited but not provided (invalid)
+    # PROPOSED (2026-11-03, evaluation-only): per-atom disclosure accounting vs the case DisclosureOracle. Atom
+    # IDS ONLY (never raw representations). Populated only when the case carries information_atoms + an oracle;
+    # empty dict otherwise. Feeds the proposed authorization-conditioned metrics (metrics.authorization_metrics).
+    atom_disclosure: dict[str, Any] = Field(default_factory=dict)
+    # Trusted runtime disclosure enforcement (disclosure.py): profile, whether the gate was enforced, and a
+    # per-channel deterministic decision trace with PII TYPES ONLY (never raw values, never ground-truth canaries).
+    enforcement_profile: str | None = None
+    disclosure_enforcement: dict[str, Any] = Field(default_factory=dict)
     hook_results: list[dict[str, Any]]
     enforcement: list[dict[str, Any]]
     final_blocking_stage: HookStage | None

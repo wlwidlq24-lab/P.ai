@@ -133,6 +133,13 @@ class Settings(BaseSettings):
     # answer that cites evidence not supplied to it (conservative). Never equates valid labels with correctness.
     citation_policy: str = "annotate"  # "annotate" | "block"
 
+    # PROPOSED (2026-11-03) generated-artifact re-validation (research addition B). When True, the transformed
+    # final response and the (not-yet-executed) action payloads are re-measured against the active DISCLOSURE
+    # authorization (case-specific when present, else role policy) BEFORE execution; a surviving unauthorized
+    # disclosure blocks the response and cancels pending actions (fail-closed, bounded single re-check — no loop).
+    # Off by default so existing behaviour/metrics are unchanged; enable per experiment condition to study it.
+    revalidate_transformed_output: bool = False
+
     request_deadline_s: float = 180.0
     llm_call_timeout_s: float = 150.0
     guard_call_timeout_s: float = 30.0

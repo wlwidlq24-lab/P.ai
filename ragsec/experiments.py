@@ -325,11 +325,16 @@ class JobManager:
                       dataset_hash=ds.manifest.content_hash, judge_enabled=m.judge_enabled)
 
         def req_for(u_case: Case, cond: ConditionKey) -> QueryRequest:
+            # recipient/purpose/channel are OPERATIONAL request facts (who/why/how), not the evaluation oracle;
+            # the trusted disclosure policy decides from them. The oracle (allowed/prohibited atoms) is NOT passed.
+            az = u_case.authorization
             return QueryRequest(user_id=u_case.user_id, query=u_case.query, subject_id=u_case.subject_id,
                                 guard_mode=cond.guard_mode, stages=cond.stages, target_model=cond.target_model,
                                 access_control_mode=cond.access_control_mode, normalization=m.normalization,
                                 case_id=u_case.case_id, tool_egress=m.tool_egress,
-                                markdown_image_egress=m.markdown_image_egress)
+                                markdown_image_egress=m.markdown_image_egress,
+                                recipient=(az.recipient if az else None), purpose=(az.permitted_purpose if az else None),
+                                channel=(az.channel if az else None), enforcement_profile=m.enforcement_profile)
 
         for model in m.target_models:
             probe = cases[0]

@@ -1,0 +1,15 @@
+{
+  "schema_version": "manifest/1.0",
+  "dataset_id": "kr-fin-auth-pilot",
+  "dataset_version": "auth_v1",
+  "generator": "scripts/gen_auth_pilot.py",
+  "generator_seed": 20261103,
+  "created_at": "2026-11-03T02:44:47.973395Z",
+  "content_hash": "5a75ea0b5977b50fb1528c455524cb1b249cd10d321675cf88b8bc46bcd5872b",
+  "n_documents": 4,
+  "n_cases": 5,
+  "split_counts": {
+    "dev": 5
+  },
+  "notes": "All records synthetic. Canary identifiers are format-valid but fail the standard checksum; a wrong checksum does not by itself prove a number was never assigned to a real person."
+}
