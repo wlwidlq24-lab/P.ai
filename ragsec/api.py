@@ -16,14 +16,17 @@ from .auth import Principal, PrincipalStore, authenticate
 from .config import get_settings
 from .errors import (
     AuthenticationError, AuthorizationDeniedError, FileTooLargeError, JobNotFoundError, MetadataValidationError,
-    RagSecError,
+    RagSecError, UnknownUserError,
 )
 from .experiments import load_dataset, resolve_dataset_dir
+from .handoff import EvidenceOpenResult, create_handover, open_evidence
 from .ingestion import IngestItem
 from .parsing import parse_document
 from .schemas import DocumentMetadataIn, ExperimentManifest, QueryRequest, QueryResponse
 from .services import Services, build_services
+from .store import is_authorized
 from .tenants import TenantRegistry
+from .timeutil import utc_now
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +63,21 @@ def admin_dep(principal: Annotated[Principal, Depends(principal_dep)]) -> Princi
     if not principal.is_admin and "admin" not in principal.roles:
         raise AuthorizationDeniedError("administrative capability required for this endpoint")
     return principal
+
+
+def _log_evidence(svc: Services, handover_id: str, evidence_id: str, viewer: str, outcome: str, reason: str,
+                  policy_versions: dict) -> None:
+    """Safe evidence-access log (reuses the safe-logging discipline): records policy version, outcome and reason
+    only — NEVER a title, excerpt, preview, or document bytes."""
+    try:
+        p = svc.settings.log_dir / "evidence_access.jsonl"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"at": utc_now().isoformat(), "handover_id": handover_id, "evidence_id": evidence_id,
+                                "viewer": viewer, "outcome": outcome, "reason": reason,
+                                "policy_versions": policy_versions}, ensure_ascii=False) + "\n")
+    except Exception:
+        log.exception("evidence access log failed")
 
 
 Svc = Annotated[Services, Depends(svc_dep)]
@@ -195,10 +213,67 @@ def create_app(services: Services | None = None) -> FastAPI:
         if not principal.can_act_as(req.user_id):
             raise AuthorizationDeniedError("principal may not act as this user_id")
         qr = await svc.rag.answer(req)
+        # CreateHandoff use case: mint server-assigned evidence links for the answer's VALID citations only.
+        # (D10 annotate is preserved: invalid_citations stay in the body with no link; the UI marks them
+        #  unavailable. Link issuance is independent of the per-click authorization enforced at OpenEvidence.)
+        if req.create_handover and qr.status == "ok" and qr.citations:
+            # Pin the EXACT version used to retrieve/validate the cited chunks (from the answer), not a fresh read
+            # of the active version — an index activation between retrieval and here must not repoint citations.
+            index_version = qr.active_index_version or await asyncio.to_thread(svc.repo.active_version)
+            rec, links = create_handover(
+                svc.handovers, requester=req.user_id, recipient=req.recipient, purpose=req.purpose,
+                channel=req.channel, index_version=index_version, citations=qr.citations,
+                evidence_policy=req.evidence_policy)
+            qr.handover_id = rec.handover_id
+            qr.evidence_links = links
         # Synchronous API status semantics: a handled failure returns a non-2xx with the structured body intact.
         # (A content BLOCK is a successful, policy-correct response -> 200.)
         response.status_code = _HTTP_STATUS_FOR.get(qr.error_code, 200) if qr.status != "ok" else 200
         return qr
+
+    @app.get("/handover/{handover_id}/evidence/{evidence_id}", response_model=EvidenceOpenResult)
+    async def open_evidence_ep(handover_id: str, evidence_id: str, svc: Svc, principal: Prin, response: Response,
+                               viewer: Annotated[str, Query()]) -> EvidenceOpenResult:
+        """OpenEvidence use case: authenticate the viewer NOW, resolve handoff + current grant + pinned source
+        from trusted state, and return only the permitted view. Never serves source bytes/public URLs; never
+        caches a stale authorization. Returns RESTRICTED (no protected metadata) for any denial or unknown id."""
+        if not principal.can_act_as(viewer):   # the viewer is the authenticated identity, not a client claim
+            raise AuthorizationDeniedError("principal may not act as this viewer")
+        response.headers["Cache-Control"] = "no-store"   # a shared/response cache must not bypass authorization
+        rec = svc.handovers.get(handover_id)
+        policies = svc.policies()
+        as_of = utc_now()
+
+        def _restricted(reason: str) -> EvidenceOpenResult:
+            # Uniform denial shape — no title/page/preview/version — so existence is not leaked via the response.
+            _log_evidence(svc, handover_id, evidence_id, viewer, "restricted", reason, policies.versions)
+            return EvidenceOpenResult(outcome="restricted", handover_id=handover_id, evidence_id=evidence_id,
+                                      reason=reason)
+        if rec is None:
+            return _restricted("unknown_handover")
+        try:
+            viewer_user = policies.resolve_user(viewer)
+            role_policy = policies.role_policy(viewer_user.role)
+        except UnknownUserError:
+            return _restricted("unknown_viewer")
+        granted = svc.grants.is_granted(handover_id, viewer, as_of)
+        result = open_evidence(
+            handover=rec, evidence_id=evidence_id, granted=granted,
+            load_chunk=lambda ver, cid: svc.repo.get_chunk(ver, cid),
+            authorize_original=lambda ch: is_authorized(ch.metadata, viewer_user, role_policy, as_of))
+        _log_evidence(svc, handover_id, evidence_id, viewer, result.outcome.value, result.reason, policies.versions)
+        return result
+
+    @app.post("/handover/{handover_id}/grant", dependencies=[AdminAuth])
+    async def grant_evidence(handover_id: str, svc: Svc, viewer: Annotated[str, Query()],
+                             action: Annotated[str, Query()] = "grant") -> dict[str, Any]:
+        """PROTECTED (admin) grant control — a permission-changing mechanism kept OUT of the ordinary user screen.
+        Grants or revokes a viewer's recipient entitlement in trusted state; the handoff record/URL stay unchanged."""
+        if action == "revoke":
+            svc.grants.revoke(handover_id, viewer)
+        else:
+            svc.grants.grant(handover_id, viewer)
+        return {"handover_id": handover_id, "viewer": viewer, "action": action}
 
     @app.post("/experiments/run", dependencies=[AdminAuth])
     async def run_experiment(m: ExperimentManifest, svc: Svc) -> dict[str, Any]:

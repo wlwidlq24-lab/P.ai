@@ -4,12 +4,12 @@
   "dataset_version": "auth_v1",
   "generator": "scripts/gen_auth_pilot.py",
   "generator_seed": 20261103,
-  "created_at": "2026-11-03T02:44:47.973395Z",
-  "content_hash": "5a75ea0b5977b50fb1528c455524cb1b249cd10d321675cf88b8bc46bcd5872b",
+  "created_at": "2026-11-04T00:11:37.207575Z",
+  "content_hash": "3ba9f85f93822a1e6cb4f1d929a5721c074f63a8c6ef2ad8363ff69ff583cb76",
   "n_documents": 4,
-  "n_cases": 5,
+  "n_cases": 6,
   "split_counts": {
-    "dev": 5
+    "dev": 6
   },
   "notes": "All records synthetic. Canary identifiers are format-valid but fail the standard checksum; a wrong checksum does not by itself prove a number was never assigned to a real person."
 }

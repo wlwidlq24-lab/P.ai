@@ -139,6 +139,15 @@ class Settings(BaseSettings):
     # disclosure blocks the response and cancels pending actions (fail-closed, bounded single re-check — no loop).
     # Off by default so existing behaviour/metrics are unchanged; enable per experiment condition to study it.
     revalidate_transformed_output: bool = False
+    # SERVER-CONTROLLED minimum enforcement. The effective profile is the STRONGER of this floor and the request's
+    # enforcement_profile, so a client query field can only RAISE enforcement, never downgrade below the floor.
+    # Default "measurement_only" is the explicit LOCAL RESEARCH profile (not an authorization bypass): it must be
+    # set deliberately, and running measurement-only experiments is still gated by the admin /experiments path.
+    min_enforcement_profile: str = "measurement_only"   # "measurement_only" | "enforced"
+    # Disclosure policy resolution mode. "role_fallback": when a role has no applicable disclosure_rules, fall back
+    # to its flat disclosable_pii_types (backward compatible). "strict_rules": a strict recipient/purpose/channel
+    # study — missing/unmatched trusted rules are HELD (readiness), never silently flattened to role permissions.
+    disclosure_policy_mode: str = "role_fallback"       # "role_fallback" | "strict_rules"
 
     request_deadline_s: float = 180.0
     llm_call_timeout_s: float = 150.0
@@ -159,6 +168,20 @@ class Settings(BaseSettings):
     def _validate_ollama_url(cls, v: str) -> str:
         # Raises UrlPolicyError (a ValueError) on violation -> Settings construction fails -> no startup.
         return validate_loopback_url(v).base_url
+
+    @field_validator("min_enforcement_profile")
+    @classmethod
+    def _validate_min_profile(cls, v: str) -> str:
+        if v not in ("measurement_only", "enforced"):
+            raise ValueError("min_enforcement_profile must be 'measurement_only' or 'enforced'")
+        return v
+
+    @field_validator("disclosure_policy_mode")
+    @classmethod
+    def _validate_policy_mode(cls, v: str) -> str:
+        if v not in ("role_fallback", "strict_rules"):
+            raise ValueError("disclosure_policy_mode must be 'role_fallback' or 'strict_rules'")
+        return v
 
     def ollama_connection(self) -> OllamaConnection:
         """Immutable, validated connection target. Re-checked immediately before each request."""

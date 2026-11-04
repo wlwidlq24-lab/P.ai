@@ -594,6 +594,11 @@ class QueryRequest(BaseModel):
     # "enforced" turns on pre-execution disclosure revalidation. Mandatory controls (authentication, retrieval
     # authorization, local-only execution, fixed transport) are ON in BOTH profiles. Available != enabled.
     enforcement_profile: Literal["measurement_only", "enforced"] = "measurement_only"
+    # Evidence navigation: when true, a handoff record with server-assigned evidence links is created from the
+    # answer's valid citations. evidence_policy selects whether a viewer without original-source access may still
+    # receive a policy-permitted excerpt.
+    create_handover: bool = False
+    evidence_policy: Literal["original_only", "approved_excerpt"] = "approved_excerpt"
 
     @field_validator("as_of")
     @classmethod
@@ -678,10 +683,17 @@ class QueryResponse(BaseModel):
     invalid_citations: list[str] = Field(default_factory=list)       # labels cited but NOT provided as evidence
     uncited_evidence_labels: list[str] = Field(default_factory=list)  # provided evidence the answer did not cite
     citation_policy: Literal["annotate", "block"] = "annotate"
+    # Evidence navigation (optional): a created handoff id and server-constructed links for valid citations only.
+    # Under D10 annotate, invalid_citations get no link and are marked unavailable by the UI.
+    handover_id: str | None = None
+    evidence_links: list[dict[str, Any]] = Field(default_factory=list)
     timings: StageTimings
     target_model: str
     guard_mode: GuardMode
     access_control_mode: AccessControlMode
+    # The index version actually used to retrieve and validate the cited chunks. A handoff pins THIS version into
+    # every EvidenceRef, so a later index activation cannot repoint a citation to different content.
+    active_index_version: str | None = None
     status: Literal["ok", "error", "timeout"]
     error_code: str | None = None
 

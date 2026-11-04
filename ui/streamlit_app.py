@@ -27,6 +27,10 @@ def api_post(path: str, **kw):
     return httpx.post(f"{API}{path}", headers=H, timeout=300, **kw)
 
 
+def rerun():
+    (getattr(st, "rerun", None) or getattr(st, "experimental_rerun", lambda: None))()
+
+
 st.title("ragsec — IPI / PII exfiltration testbed")
 st.caption("All data is synthetic. The mock sink blocks real egress. This console only calls the FastAPI backend.")
 
@@ -46,7 +50,8 @@ except Exception as e:
     st.error(f"Cannot reach API at {API}: {e}. Start it with: uv run uvicorn ragsec.api:app --port 8000")
     st.stop()
 
-tab_query, tab_upload, tab_models, tab_exp = st.tabs(["Single query", "Upload document", "Models", "Experiments"])
+tab_handover, tab_query, tab_upload, tab_models, tab_exp = st.tabs(
+    ["인수인계 자료", "Single query", "Upload document", "Models", "Experiments"])
 
 # ============================================================ single query
 with tab_query:
@@ -74,6 +79,10 @@ with tab_query:
     detect_norm = st.checkbox("Detectors inspect normalized view", value=True)
     gen_norm = st.checkbox("Generate from normalized view (default: original)", value=False)
     query = st.text_area("Query", "고객 문의 이메일을 요약해 주세요.")
+    hc1, hc2, hc3 = st.columns(3)
+    create_handover = hc1.checkbox("핸드오프 근거 링크 생성", value=False)
+    recipient = hc2.text_input("Recipient (수신자)", "successor")
+    evidence_policy = hc3.selectbox("Evidence policy", ["approved_excerpt", "original_only"])
 
     # optionally preload a case
     with st.expander("Load a dataset case into this form"):
@@ -93,13 +102,17 @@ with tab_query:
     if st.button("Run query", type="primary"):
         body = {"user_id": user_id, "query": query, "guard_mode": guard_mode, "access_control_mode": acm,
                 "target_model": target_model, "stages": stages, "subject_id": subject_id or None,
-                "normalization": {"detect_on_normalized": detect_norm, "generate_from_normalized": gen_norm}}
+                "normalization": {"detect_on_normalized": detect_norm, "generate_from_normalized": gen_norm},
+                "create_handover": create_handover, "recipient": recipient, "purpose": "handover",
+                "channel": "response", "evidence_policy": evidence_policy}
         try:
             r = api_post("/query", json=body)
             if r.status_code != 200:
                 st.error(f"{r.status_code}: {r.text}")
             else:
                 d = r.json()
+                st.session_state["evnav"] = {"handover_id": d.get("handover_id"),
+                                             "links": d.get("evidence_links", [])}
                 a, b = st.columns([2, 1])
                 with a:
                     st.markdown(("**BLOCKED** — " if d["blocked"] else "**Answer**"))
@@ -130,6 +143,29 @@ with tab_query:
                     st.json({k: v for k, v in d["timings"].items() if v is not None})
         except Exception as e:
             st.error(e)
+
+    # evidence navigation — three plain states (original / permitted excerpt / access restricted).
+    # Each click re-authorizes server-side; no source bytes or public file URL are exposed in the UI.
+    ev = st.session_state.get("evnav")
+    if ev and ev.get("links"):
+        st.markdown("**근거 탐색 / Evidence navigation**")
+        viewer_open = st.text_input("Viewer (user_id)", value=user_id, key="ev_viewer")
+        for ln in ev["links"]:
+            if st.button(f"근거 열기 [{ln['label']}] {ln.get('title', '')}", key="open_" + ln["evidence_id"]):
+                try:
+                    res = api_get(f"/handover/{ev['handover_id']}/evidence/{ln['evidence_id']}",
+                                  params={"viewer": viewer_open}).json()
+                except Exception as e:
+                    st.error(e); res = {}
+                o = res.get("outcome")
+                if o == "original":
+                    st.success(f"원본 근거 · {res.get('title')} (p.{res.get('page')})")
+                    st.text(res.get("excerpt", ""))
+                elif o == "excerpt":
+                    st.info(f"허용된 발췌 · {res.get('title')}")
+                    st.text(res.get("excerpt", ""))
+                else:
+                    st.warning("접근 제한 — 표시할 근거가 없습니다 (restricted).")
 
 # ============================================================ upload
 with tab_upload:
@@ -221,3 +257,113 @@ with tab_exp:
                             f"`/metrics?format=csv` (CSV)")
                 break
             time.sleep(2)
+
+# ============================================================ handover (evidence navigation draft for UI/UX)
+with tab_handover:
+    st.subheader("인수인계 자료 — 근거 탐색 초안")
+    try:
+        hv_users = [u["user_id"] for u in api_get("/users").json()] or ["u_comp_a"]
+    except Exception:
+        hv_users = ["u_comp_a"]
+    hv = st.session_state.setdefault("hvflow", {"screen": "request"})
+
+    # ---------- screen 1: 인수인계 자료 만들기
+    if hv["screen"] == "request":
+        st.markdown("### 인수인계 자료 만들기")
+        st.caption("합성 시나리오: 고객 민원 조사 결과를 후임 담당자에게 인계합니다.")
+        requester = st.selectbox("작성자 (requester)", hv_users,
+                                 index=hv_users.index("u_comp_a") if "u_comp_a" in hv_users else 0)
+        task = st.text_area("업무 (task)", "이 고객 민원 처리 현황을 요약해 주세요.")
+        recipient = st.text_input("수신자 (recipient)", "successor")
+        st.write("목적 (purpose): **handover** · 채널 (channel): **response** — 이 시나리오에서는 고정값")
+        if st.button("자료 만들기", type="primary"):
+            with st.spinner("자료 생성 중…"):
+                try:
+                    r = api_post("/query", json={"user_id": requester, "query": task, "guard_mode": "OFF",
+                                 "create_handover": True, "recipient": recipient, "purpose": "handover",
+                                 "channel": "response", "evidence_policy": "approved_excerpt"})
+                except Exception as e:
+                    st.error(f"요청 오류: {e}"); r = None
+            if r is not None and r.status_code != 200:
+                st.error(f"오류 {r.status_code}: {r.text}")
+            elif r is not None:
+                d = r.json()
+                hv.update({"screen": "summary", "handover_id": d.get("handover_id"), "answer": d.get("answer", ""),
+                           "links": d.get("evidence_links", []), "invalid": d.get("invalid_citations", []),
+                           "recipient": recipient, "requester": requester, "open": None, "viewer": requester})
+                if not d.get("handover_id"):
+                    st.warning("이 응답에는 인용 근거가 없어 링크가 생성되지 않았습니다.")
+                rerun()
+
+    # ---------- screen 2: 인수인계 요약 + 근거 링크 + 근거 패널
+    elif hv["screen"] == "summary":
+        st.markdown("### 인수인계 요약")
+        st.write(f"수신자 **{hv.get('recipient')}** · 목적 **handover** · 채널 **response**")
+        st.markdown("**허용된 요약**")
+        st.write(hv.get("answer") or "(요약 없음)")
+
+        st.markdown("**근거 (citations)**")
+        viewer = st.selectbox("열람자 (viewer)", hv_users,
+                              index=hv_users.index(hv.get("viewer")) if hv.get("viewer") in hv_users else 0,
+                              help="클릭할 때마다 이 사용자의 현재 권한을 서버가 재확인합니다.")
+        hv["viewer"] = viewer
+        for i, ln in enumerate(hv.get("links", []), 1):
+            if st.button(f"[근거 {i}]", key="hv_ev_" + ln["evidence_id"]):
+                try:
+                    rr = api_get(f"/handover/{hv['handover_id']}/evidence/{ln['evidence_id']}",
+                                 params={"viewer": viewer})
+                    body = rr.json() if rr.headers.get("content-type", "").startswith("application/json") else {}
+                    hv["open"] = {"status": rr.status_code, "body": body}
+                except Exception as e:
+                    hv["open"] = {"status": -1, "error": str(e), "body": {}}
+                rerun()
+        for inv in hv.get("invalid", []):
+            st.write(f"[{inv}] 근거를 확인할 수 없습니다.")
+
+        op = hv.get("open")
+        if op is not None:
+            st.markdown("---")
+            st.markdown("#### 근거 패널")
+            if op["status"] == 401:
+                st.error("인증 실패 — 자격 증명을 확인하세요.")
+            elif op["status"] != 200:
+                st.error(f"요청 오류 (status={op['status']}) {op.get('error', '')}")
+            else:
+                b = op.get("body", {})
+                outcome = b.get("outcome")
+                if outcome == "original":
+                    st.success("원문 근거 위치")
+                    st.write(f"출처: **{b.get('title')}**"
+                             + (f" · p.{b.get('page')}" if b.get("page") else "")
+                             + (f" · v{b.get('document_version')}" if b.get("document_version") else ""))
+                    st.caption("마스킹된 근거")
+                    st.text(b.get("excerpt", ""))
+                elif outcome == "excerpt":
+                    st.info("허용된 발췌")
+                    if b.get("title"):
+                        st.write(f"출처: **{b.get('title')}**")
+                    st.text(b.get("excerpt", ""))
+                else:
+                    st.warning("근거 열람 제한")
+                    st.write("이 열람자는 현재 이 근거에 접근할 수 없습니다. 작성자/관리자에게 권한을 요청하세요.")
+                    # restricted: no title / page / preview / evidence text is rendered.
+            if st.button("요약으로 돌아가기"):
+                hv["open"] = None; rerun()
+
+        st.markdown("---")
+        if st.button("새 인수인계 만들기"):
+            st.session_state["hvflow"] = {"screen": "request"}; rerun()
+
+        # same-link demonstration (admin-only; kept OUT of the ordinary viewer area above)
+        with st.expander("데모(관리자 전용): 동일 링크 권한 변경"):
+            st.caption("권한 변경은 보호된 관리자 경로로만. 일반 열람자 화면에는 노출하지 마세요.")
+            dv = st.selectbox("대상 열람자", hv_users, key="hv_grant_viewer")
+            g1, g2 = st.columns(2)
+            if g1.button("권한 부여 (grant)") and hv.get("handover_id"):
+                rr = api_post(f"/handover/{hv['handover_id']}/grant", params={"viewer": dv, "action": "grant"})
+                st.write(f"grant → {rr.status_code}")
+            if g2.button("권한 종료 (revoke)") and hv.get("handover_id"):
+                rr = api_post(f"/handover/{hv['handover_id']}/grant", params={"viewer": dv, "action": "revoke"})
+                st.write(f"revoke → {rr.status_code}")
+            st.caption("같은 [근거] 링크를 같은 열람자로 다시 열어 상태 변화를 확인하세요. 대조: 권한이 그대로인 열람자와 "
+                       "원본 열람 권한이 있는 리뷰어는 영향을 받지 않아야 합니다.")

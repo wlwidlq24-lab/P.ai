@@ -1,0 +1,36 @@
+# Line-ending normalization for reproducible content hashes.
+#
+# ragsec freezes and verifies approval over RAW FILE BYTES (pilot.compute_freeze: sha256_bytes of attack docs;
+# experiments.dataset_content_hash: sha256 over dataset files). An LF<->CRLF conversion CHANGES those bytes and
+# therefore the hashes, so it is NOT automatically harmless: on Windows a CRLF checkout would make a dataset's
+# content_hash mismatch its manifest (load_dataset fails) and would register as freeze drift. These rules store
+# and CHECK OUT text as LF on every platform so approval hashes are stable.
+#
+# NOTE: adding this file can trigger a one-time renormalization. Run `git add --renormalize .` deliberately (NOT
+# done automatically here), review the diff, and re-generate/re-freeze any affected dataset so approved hashes
+# match the normalized bytes. Never silently refresh an approved freeze to accommodate a line-ending change.
+
+* text=auto eol=lf
+
+*.py    text eol=lf
+*.md    text eol=lf
+*.json  text eol=lf
+*.jsonl text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.csv   text eol=lf
+*.txt   text eol=lf
+*.toml  text eol=lf
+*.cfg   text eol=lf
+*.ps1   text eol=lf
+
+# Binary assets must never be line-ending converted.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.docx binary
+*.xlsx binary
+*.pptx binary

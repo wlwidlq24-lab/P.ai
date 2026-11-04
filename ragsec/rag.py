@@ -31,7 +31,7 @@ from .guards.runner import Enforcer, run_stage
 from .llm.base import LLMClient
 from .logstore import JsonlWriter, RawArtifactStore
 from .policy import PolicyBundle
-from .disclosure import evaluate_disclosure
+from .disclosure import NullEvidenceProvider, evaluate_disclosure
 from .reachability import structural_sink_reachability
 from .scheduler import ModelScheduler
 from .schemas import (
@@ -80,8 +80,11 @@ class RagService:
                  plugins: dict[str, GuardPlugin], sink: MockSink, raw_store: RawArtifactStore,
                  policies: Callable[[], PolicyBundle], provenance: Callable[[str], ModelProvenance],
                  ollama_version: Callable[[], str | None], default_writer: JsonlWriter,
-                 judge: "GeminiJudge | None" = None):
+                 judge: "GeminiJudge | None" = None, evidence_provider=None):
         self.s = settings
+        # TRUSTED server-side provider of verified conditional-predicate facts. Default verifies NOTHING (so
+        # conditional disclosures are HELD) — the client's request body never supplies verified evidence.
+        self.evidence_provider = evidence_provider or NullEvidenceProvider()
         self.client = client
         self.scheduler = scheduler
         self.repo = repo
@@ -149,6 +152,12 @@ class RagService:
         deadline = time.monotonic() + self.s.request_deadline_s
         gt = exp.case.ground_truth if exp else None
         as_of = req.as_of or utc_now()
+        # Server-controlled enforcement profile: a client query field can only RAISE enforcement, never downgrade
+        # below the server floor (min_enforcement_profile). Both requested and effective are recorded.
+        requested_profile = req.enforcement_profile
+        effective_profile = "enforced" if (requested_profile == "enforced"
+                                           or self.s.min_enforcement_profile == "enforced"
+                                           or self.s.revalidate_transformed_output) else "measurement_only"
         # Disclosure authorization is CASE-SPECIFIC when the case carries a synthetic experimental policy
         # (CaseAuthorization); otherwise it falls back to the actor's role policy. This avoids baking a
         # universal rule (e.g. "compliance may disclose RRN but not card") into the evaluator.
@@ -340,8 +349,16 @@ class RagService:
                     # oracle-isolation test). DENY => unauthorized; HOLD => unresolved/conditional unmet. Both
                     # block before any action executes and prevent streaming protected output (fail-closed).
                     # Bounded: a single re-check of the already-transformed artifacts (no transform loop).
-                    enforce = req.enforcement_profile == "enforced" or self.s.revalidate_transformed_output
+                    enforce = effective_profile == "enforced"
                     if blocked_stage is None and enforce:
+                        # Conditional-predicate facts come ONLY from the trusted server-side provider, never from
+                        # the client's req.disclosure_evidence (which is recorded as an untrusted assertion).
+                        requested_preds = {pid for r in (role_policy.disclosure_rules or [])
+                                           for pid in r.conditional_predicates}
+                        verified = self.evidence_provider.verified(
+                            principal_id=user.user_id, tenant_id=user.tenant_id, recipient=req.recipient,
+                            purpose=req.purpose, channel=req.channel, scope=req.subject_id, as_of=as_of,
+                            requested_predicates=requested_preds)
                         channels: list[tuple[str, str, str | None]] = [("response", candidate, req.channel or "response")]
                         for i, a in enumerate(actions):
                             channels.append((f"action{i}", action_texts[i], a.destination))
@@ -351,14 +368,19 @@ class RagService:
                             types = {m.pii_type.value for m in detect_pii(normalize(text).text)}
                             dec = evaluate_disclosure(types, role_policy=role_policy, recipient=req.recipient,
                                                       purpose=req.purpose, channel=chan, as_of=as_of,
-                                                      evidence=req.disclosure_evidence)
+                                                      verified_predicates=verified, mode=self.s.disclosure_policy_mode)
                             traces.append({"channel": name, "decision": dec.decision, "allowed": dec.allowed_types,
-                                           "held": dec.held_types, "denied": dec.denied_types, "trace": dec.trace})
+                                           "held": dec.held_types, "denied": dec.denied_types, "trace": dec.trace,
+                                           "mode": dec.mode, "rule_matched": dec.rule_matched, "reasons": dec.reasons})
                             if dec.decision == "DENY":
                                 worst = "DENY"
                             elif dec.decision == "HOLD" and worst != "DENY":
                                 worst = "HOLD"
-                        disclosure_enforcement = {"enforced": True, "decision": worst, "channels": traces}
+                        disclosure_enforcement = {"enforced": True, "decision": worst, "channels": traces,
+                                                  "policy_mode": self.s.disclosure_policy_mode,
+                                                  "verified_predicates": sorted(verified),
+                                                  "client_assertions": dict(req.disclosure_evidence),  # untrusted; not used
+                                                  "client_assertions_used": False}
                         if worst == "DENY":
                             blocked_stage = HookStage.POST_GENERATION
                             block_reasons.append("UNAUTHORIZED_DISCLOSURE_REVALIDATION")
@@ -462,7 +484,12 @@ class RagService:
         record.sink_reachability = sink_reach
         record.sink_reachability_reason = sink_reach_reason
         record.atom_disclosure = atom_disclosure
-        record.enforcement_profile = req.enforcement_profile
+        record.enforcement_profile = effective_profile
+        disclosure_enforcement.setdefault("enforced", effective_profile == "enforced")
+        disclosure_enforcement["requested_profile"] = requested_profile
+        disclosure_enforcement["effective_profile"] = effective_profile
+        if requested_profile != effective_profile:
+            disclosure_enforcement["downgrade_prevented"] = True
         record.disclosure_enforcement = disclosure_enforcement
         if exp is not None and exp.judge_enabled and self.judge is not None and status == "ok" and not gt.is_attack:
             record.judge = await self.judge.judge(req.query, final_answer, gt)
@@ -488,7 +515,8 @@ class RagService:
                              citations=citations, invalid_citations=invalid_citations,
                              uncited_evidence_labels=uncited_labels, citation_policy=self.s.citation_policy,
                              timings=timings, target_model=model, guard_mode=req.guard_mode,
-                             access_control_mode=req.access_control_mode, status=status, error_code=error_code)
+                             access_control_mode=req.access_control_mode, active_index_version=index_version,
+                             status=status, error_code=error_code)
 
     def _vram_sample(self) -> VramSample:
         # Runtime must not call /api/ps (diagnostics are administrative and separated from the inference

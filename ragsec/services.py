@@ -9,6 +9,7 @@ from .errors import ModelError, RagSecError
 from .experiments import JobManager
 from .guards import ContextLeakPlugin, IpiRulePlugin, LlamaGuardPlugin, PiiRegexPlugin, ProvenancePlugin
 from .guards.base import GuardPlugin
+from .handoff import GrantStore, HandoverStore
 from .ingestion import Ingestor
 from .judge import GeminiJudge
 from .llm import LLMClient, MockLLMClient, OllamaAdminClient, OllamaClient
@@ -34,6 +35,8 @@ class Services:
     rag: RagService
     jobs: JobManager
     sink: MockSink
+    handovers: HandoverStore | None = None   # evidence navigation: server-controlled handoff records
+    grants: GrantStore | None = None         # trusted recipient/viewer grants (revocable)
     _policies: PolicyBundle | None = None
     _models: dict[str, ModelProvenance] = field(default_factory=dict)
     _ollama_version: str | None = None
@@ -134,7 +137,9 @@ def build_services(settings: Settings, client: LLMClient | None = None) -> Servi
     raw = RawArtifactStore(settings.raw_dir, settings.raw_artifact_store, settings.raw_artifact_retention_days)
     raw.purge_expired()
     svc = Services(settings=settings, client=client, scheduler=scheduler, repo=repo, plugins=plugins,
-                   ingestor=None, rag=None, jobs=None, sink=sink)  # type: ignore[arg-type]
+                   ingestor=None, rag=None, jobs=None, sink=sink,  # type: ignore[arg-type]
+                   handovers=HandoverStore(settings.data_dir / "handovers"),
+                   grants=GrantStore(settings.data_dir / "grants"))
     svc.ingestor = Ingestor(settings, client, scheduler, repo, guard)
     judge = GeminiJudge(settings.gemini_api_key, settings.gemini_model, settings.gemini_enabled)
     svc.rag = RagService(settings, client, scheduler, repo, plugins, sink, raw, svc.policies, svc.provenance,

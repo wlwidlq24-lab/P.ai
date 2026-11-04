@@ -27,6 +27,7 @@ from ragsec.schemas import (
     DocumentMetadataIn, ExperimentalLabel, GroundTruth, GuardMode, InformationAtom, PiiGrade, PiiType,
     QueryRequest, SourceType, TrustLevel,
 )
+from ragsec.disclosure import EvidenceRecord, NullEvidenceProvider, StaticEvidenceProvider
 from ragsec.logstore import JsonlWriter, read_jsonl
 
 RRN = "900101-1234567"
@@ -353,6 +354,67 @@ def test_cancellation_propagates(services):
         except asyncio.CancelledError:
             return True
     assert asyncio.run(run())
+
+
+def test_forged_client_evidence_cannot_allow(services, tmp_path):
+    """A client-supplied disclosure_evidence boolean must NOT satisfy a conditional predicate: only the trusted
+    server-side provider can. Forged evidence => still HELD; a server provider that verifies => ALLOW."""
+    rp = services.policies().access.roles["compliance"]
+    rp.disclosure_rules = [DisclosureRule(recipient="internal_successor", channel="response",
+                                          allowed_pii_types=[PiiType.RRN],
+                                          conditional_predicates=["recipient_verified"])]
+
+    async def run(tag, provider):
+        services.rag.evidence_provider = provider
+        item = _ingest_rrn_memo(services, tag)
+        await services.ingestor.ingest([item], services.policies(), run_llama_guard=False)
+        case = Case(case_id=f"c_fe_{tag}", lineage_id="Lrv", split="dev", case_type=CaseType.BENIGN_PII,
+                    language="ko", user_id="u_comp_a", subject_id="cust_rv", query="메모를 요약해 주세요.",
+                    ground_truth=GroundTruth(is_attack=False))
+        exp = ExperimentContext(experiment_id="t", run_id="r", case=case, repetition=0, order_index=0,
+                                dataset_version="1", dataset_hash="h", log_writer=JsonlWriter(tmp_path / f"fe_{tag}.jsonl"))
+        # The client ASSERTS the predicate is true — this must be ignored by enforcement.
+        return await services.rag.answer(QueryRequest(
+            user_id="u_comp_a", query=case.query, subject_id="cust_rv", guard_mode=GuardMode.OFF, case_id=case.case_id,
+            recipient="internal_successor", channel="response", enforcement_profile="enforced",
+            disclosure_evidence={"recipient_verified": True}), exp)
+
+    forged = asyncio.run(run("forged", NullEvidenceProvider()))        # client says True, server verifies nothing
+    verified = asyncio.run(run("verified", StaticEvidenceProvider([EvidenceRecord(
+        predicate="recipient_verified", recipient="internal_successor", channel="response",
+        evidence_id="EV-1", version="1")])))
+    assert forged.blocked and "DISCLOSURE_HELD" in forged.block_reasons   # forged client evidence cannot ALLOW
+    assert not verified.blocked                                            # context-bound server-verified fact -> ALLOW
+
+
+def test_client_cannot_downgrade_below_server_floor(services, tmp_path):
+    """With a server floor of 'enforced', a request asking for 'measurement_only' is upgraded to enforced; the
+    client cannot disable the gate via a query field."""
+    services.settings.min_enforcement_profile = "enforced"
+    rp = services.policies().access.roles["compliance"]
+    rp.disclosure_rules = [DisclosureRule(recipient="internal_successor", channel="response",
+                                          allowed_pii_types=[PiiType.ACCOUNT_NUMBER])]  # rrn NOT granted -> DENY
+
+    async def run():
+        item = _ingest_rrn_memo(services, "downgrade")
+        await services.ingestor.ingest([item], services.policies(), run_llama_guard=False)
+        case = Case(case_id="c_dg", lineage_id="Lrv", split="dev", case_type=CaseType.BENIGN_PII, language="ko",
+                    user_id="u_comp_a", subject_id="cust_rv", query="메모를 요약해 주세요.",
+                    ground_truth=GroundTruth(is_attack=False))
+        exp = ExperimentContext(experiment_id="t", run_id="r", case=case, repetition=0, order_index=0,
+                                dataset_version="1", dataset_hash="h", log_writer=JsonlWriter(tmp_path / "dg.jsonl"))
+        resp = await services.rag.answer(QueryRequest(
+            user_id="u_comp_a", query=case.query, subject_id="cust_rv", guard_mode=GuardMode.OFF, case_id="c_dg",
+            recipient="internal_successor", channel="response", enforcement_profile="measurement_only"), exp)
+        recs, _ = read_jsonl(tmp_path / "dg.jsonl")
+        return resp, recs[0]
+
+    resp, rec = asyncio.run(run())
+    assert resp.blocked                                                    # enforced despite the request asking to downgrade
+    assert rec["enforcement_profile"] == "enforced"
+    de = rec["disclosure_enforcement"]
+    assert de["requested_profile"] == "measurement_only" and de["effective_profile"] == "enforced"
+    assert de.get("downgrade_prevented") is True
 
 
 # --------------------------------------------------------------------------- 4-state decision (Legal revision)

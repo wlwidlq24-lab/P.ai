@@ -279,3 +279,15 @@ class ChromaRepository:
 
     def count(self, version: str) -> int:
         return self._col(version).count()
+
+    def get_chunk(self, version: str, chunk_id: str) -> RetrievedChunk | None:
+        """Fetch one chunk by id from a PINNED index version (no embedding). Used by evidence navigation to load
+        the exact source a handoff cited; returns None if the version/chunk no longer exists."""
+        try:
+            res = self._col(version).get(ids=[chunk_id], include=["documents", "metadatas"])
+        except Exception:  # unknown/retired collection
+            return None
+        if not res["ids"]:
+            return None
+        return RetrievedChunk(chunk_id=chunk_id, text=res["documents"][0],
+                              metadata=ChunkMetadata.from_chroma(res["metadatas"][0]), distance=0.0)
