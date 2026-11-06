@@ -1,0 +1,22 @@
+{
+    // RAGSEC handover demo. The Streamlit UI runs on 127.0.0.1:8501 (NOT 8080). "RAGSEC: Run Handover Demo in
+    // Chrome" starts the mock API + Streamlit + seeds the demo index (preLaunchTask) and then opens the UI.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "RAGSEC: Run Handover Demo in Chrome",
+            "type": "chrome",
+            "request": "launch",
+            "url": "http://127.0.0.1:8501",
+            "webRoot": "${workspaceFolder}",
+            "preLaunchTask": "RAGSEC: start demo services"
+        },
+        {
+            "name": "Chrome: open Streamlit (services already running)",
+            "type": "chrome",
+            "request": "launch",
+            "url": "http://127.0.0.1:8501",
+            "webRoot": "${workspaceFolder}"
+        }
+    ]
+}
