@@ -205,6 +205,36 @@ def cmd_verify_freeze(args) -> int:
     return 0
 
 
+def cmd_rule_map(args) -> int:
+    """Map a Legal disclosure-rule submission to candidate RolePolicy.disclosure_rules + a Korean comparison.
+    Writes candidate/report/result to a SEPARATE output dir (labelled unapproved); never touches active policy."""
+    from .rulemap import load_submission, map_submission, write_outputs
+    sub = load_submission(Path(args.submission))
+    result = map_submission(sub)
+    out = write_outputs(result, Path(args.out))
+    summary = result.policy_mapping_summary()
+    blocked = bool(summary.semantic_mismatches or summary.unresolved_rules) or not result.behavior_ok
+    print(json.dumps({"submission_id": result.submission_id, "supported_rules": summary.supported_rules,
+                      "semantic_mismatches": summary.semantic_mismatches, "unresolved_rules": summary.unresolved_rules,
+                      "behavior_ok": result.behavior_ok, "active_policy_unchanged": True,
+                      "outputs": {k: str(v) for k, v in out.items()}}, ensure_ascii=False, indent=2))
+    return 3 if blocked else 0   # 0 = clean mapping, 3 = needs Legal correction / unresolved, 2 = tool error (main)
+
+
+def cmd_preflight(args) -> int:
+    """Read-only readiness preflight (G1–G6). Never activates an index, writes a freeze, or runs inference.
+    Exit: 0 = READY (still NOT an execution authorization), 3 = blocked readiness, 2 = tool failure."""
+    from .preflight import run_preflight
+    from .readiness import ReadinessStatus
+    s = get_settings()
+    m = ExperimentManifest.model_validate(json.loads(Path(args.manifest).read_text(encoding="utf-8")))
+    rmr = json.loads(Path(args.rule_mapping).read_text(encoding="utf-8")) if args.rule_mapping else None
+    approved = json.loads(Path(args.approved_freeze).read_text(encoding="utf-8")) if args.approved_freeze else None
+    report = run_preflight(s, m, rule_mapping_result=rmr, approved_freeze=approved)
+    print(report.model_dump_json(indent=2))
+    return 0 if report.readiness_status == ReadinessStatus.READY else 3
+
+
 def cmd_run(args) -> int:
     s = get_settings()
     svc = build_services(s)
@@ -313,6 +343,17 @@ def main(argv: list[str] | None = None) -> int:
     vf = sub.add_parser("verify-freeze", help="verify a .frozen.json against current content (exit 3 on drift)")
     vf.add_argument("frozen")
     vf.set_defaults(func=cmd_verify_freeze)
+
+    rm = sub.add_parser("rule-map", help="map a Legal disclosure-rule submission to candidate config + Korean report")
+    rm.add_argument("submission", help="path to a rule submission (.json/.yaml; companion to the Markdown template)")
+    rm.add_argument("--out", default="var/rule_mapping", help="output dir for candidate/report/result (unapproved)")
+    rm.set_defaults(func=cmd_rule_map)
+
+    pf = sub.add_parser("preflight", help="read-only readiness preflight (G1–G6); never runs or freezes")
+    pf.add_argument("manifest", help="experiment manifest JSON")
+    pf.add_argument("--rule-mapping", default=None, help="rule-map result JSON (for G1)")
+    pf.add_argument("--approved-freeze", default=None, help="human-approved .frozen.json baseline (for G6)")
+    pf.set_defaults(func=cmd_preflight)
 
     mt = sub.add_parser("metrics", help="aggregate a requests.jsonl into metrics.json/csv")
     mt.add_argument("jsonl")

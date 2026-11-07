@@ -1,11 +1,11 @@
-{
+﻿{
     "version": "2.0.0",
     "tasks": [
         {
             "label": "RAGSEC: start demo services",
             "detail": "Start the mock API + Streamlit, seed the synthetic complaint doc, wait until both respond.",
-            "type": "shell",
-            "command": "powershell",
+            "type": "process",
+            "command": "powershell.exe",
             "args": [
                 "-NoProfile", "-ExecutionPolicy", "Bypass",
                 "-File", "${workspaceFolder}\\scripts\\demo_launch.ps1"
@@ -16,8 +16,8 @@
         {
             "label": "RAGSEC: stop demo services",
             "detail": "Stop the mock API + Streamlit demo services.",
-            "type": "shell",
-            "command": "powershell",
+            "type": "process",
+            "command": "powershell.exe",
             "args": [
                 "-NoProfile", "-ExecutionPolicy", "Bypass",
                 "-File", "${workspaceFolder}\\scripts\\demo_launch.ps1", "-Stop"
@@ -27,3 +27,4 @@
         }
     ]
 }
+

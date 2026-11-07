@@ -167,3 +167,8 @@ class DatasetError(ExperimentError):
 class JobNotFoundError(ExperimentError):
     code = "JOB_NOT_FOUND"
     http_status = 404
+
+
+class InvestigationCaseNotFoundError(RagSecError):
+    code = "INVESTIGATION_CASE_NOT_FOUND"
+    http_status = 404

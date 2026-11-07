@@ -21,6 +21,9 @@ from .errors import (
 from .experiments import load_dataset, resolve_dataset_dir
 from .handoff import EvidenceOpenResult, create_handover, open_evidence
 from .ingestion import IngestItem
+from .investigation import (
+    InvestigationFindings, InvestigationRequest, assemble_findings, load_case, may_investigate,
+)
 from .parsing import parse_document
 from .schemas import DocumentMetadataIn, ExperimentManifest, QueryRequest, QueryResponse
 from .services import Services, build_services
@@ -230,6 +233,37 @@ def create_app(services: Services | None = None) -> FastAPI:
         # (A content BLOCK is a successful, policy-correct response -> 200.)
         response.status_code = _HTTP_STATUS_FOR.get(qr.error_code, 200) if qr.status != "ok" else 200
         return qr
+
+    @app.post("/investigation", response_model=InvestigationFindings)
+    async def investigation_ep(req: InvestigationRequest, svc: Svc, principal: Prin) -> InvestigationFindings:
+        """W-01 민원 조사 use case: an authorized investigator retrieves the staged case's source memo, and the
+        server returns STRUCTURED findings (confirmed facts / still-checking / next actions) plus recipient-facing
+        evidence links. Investigation authority (who may initiate) is separate from the disclosure runtime policy
+        enforced per-click at OpenEvidence; the requester's right to consult records is thus distinct from the
+        recipient's right to open the result's evidence."""
+        if not principal.can_act_as(req.user_id):
+            raise AuthorizationDeniedError("principal may not act as this user_id")
+        user = svc.policies().resolve_user(req.user_id)   # raises UnknownUserError (403) for an unknown user
+        if not may_investigate(user.role):
+            raise AuthorizationDeniedError(f"role {user.role!r} may not initiate a privacy-complaint investigation")
+        case = load_case(svc.settings.data_dir, req.case_id)   # raises 404 when the staged case is absent
+        notes: list[str] = []
+        # authorized evidence retrieval over the staged source memo (reuses retrieval authz + citation resolution)
+        qr = await svc.rag.answer(QueryRequest(user_id=req.user_id, query=case.evidence_query, guard_mode="OFF",
+                                               recipient=req.recipient, purpose=req.purpose, channel=req.channel,
+                                               evidence_policy=req.evidence_policy))
+        handover_id: str | None = None
+        evidence_links: list[dict[str, Any]] = []
+        if req.create_handover and qr.status == "ok" and qr.citations:
+            index_version = qr.active_index_version or await asyncio.to_thread(svc.repo.active_version)
+            rec, links = create_handover(svc.handovers, requester=req.user_id, recipient=req.recipient,
+                                         purpose=req.purpose, channel=req.channel, index_version=index_version,
+                                         citations=qr.citations, evidence_policy=req.evidence_policy)
+            handover_id, evidence_links = rec.handover_id, links
+        elif req.create_handover:
+            notes.append("근거로 연결할 인용이 없어 근거 링크가 생성되지 않았습니다.")
+        return assemble_findings(case, requester=req.user_id, recipient=req.recipient,
+                                 handover_id=handover_id, evidence_links=evidence_links, notes=notes)
 
     @app.get("/handover/{handover_id}/evidence/{evidence_id}", response_model=EvidenceOpenResult)
     async def open_evidence_ep(handover_id: str, evidence_id: str, svc: Svc, principal: Prin, response: Response,

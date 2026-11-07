@@ -96,8 +96,8 @@ $api = Start-Process -FilePath $py -WorkingDirectory $repo -WindowStyle Hidden -
     -RedirectStandardError $apiErr -RedirectStandardOutput (Join-Path $logDir "api.out.log")
 if (-not (Wait-Ready "http://127.0.0.1:$ApiPort/health" $api $apiErr)) { exit 3 }
 
-Write-Host "API ready. Seeding the synthetic complaint document ..." -ForegroundColor Cyan
-& $py (Join-Path $repo "scripts\demo_handover_seed.py")
+Write-Host "API ready. Seeding the synthetic W-01 investigation case ..." -ForegroundColor Cyan
+& $py (Join-Path $repo "scripts\demo_investigation_seed.py")
 if ($LASTEXITCODE -ne 0) {
     Write-Host "FAIL: seeding the demo index failed (see the SEED message above)." -ForegroundColor Red
     Stop-Process -Id $api.Id -Force -ErrorAction SilentlyContinue

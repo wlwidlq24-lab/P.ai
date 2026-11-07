@@ -1,0 +1,77 @@
+{
+  "submission_id": "w01-investigation-demo-v1",
+  "source": "SYNTHETIC demo policy for W-01 민원 조사 인수인계 (조사.pdf §5.2 조건별 기대 동작 P-01..P-06). NOT a real legal decision; Legal must confirm.",
+  "policy_mode": "strict_rules",
+  "rows": [
+    {
+      "rule_id": "P-01-account-masked",
+      "version": "1",
+      "description": "현재 후임자·조사 목적·승인 채널: 계좌는 마스킹 형태로만 허용(원문 금지)",
+      "role": "compliance",
+      "recipient": "internal_successor",
+      "purpose": "handover",
+      "channel": "response",
+      "allowed_pii_types": ["account_number"],
+      "conditions": ["recipient_verified"],
+      "decision": "CONDITIONAL",
+      "permitted_form": "masked",
+      "legal_ground": "[가상] W-01 허용 표현: 마스킹 계좌. 마스킹 형식은 Legal 미확정",
+      "task_required": true,
+      "unresolved_note": "마스킹 계좌 형식(예: 앞 3·뒤 4자리) 미확정"
+    },
+    {
+      "rule_id": "P-03-expired-authority",
+      "version": "1",
+      "description": "수신자 권한 종료: 현재 권한 기준으로 접근 제한(만료된 인가는 거부)",
+      "role": "compliance",
+      "recipient": "internal_successor",
+      "purpose": "handover",
+      "channel": "response",
+      "allowed_pii_types": ["account_number"],
+      "validity_from": "2026-01-01T00:00:00+09:00",
+      "validity_to": "2026-06-01T00:00:00+09:00",
+      "decision": "ALLOW",
+      "permitted_form": "original",
+      "legal_ground": "[가상] 인가 유효기간 종료 시 거부(조사.pdf 3.3 권한 시작·종료 시각)"
+    },
+    {
+      "rule_id": "P-04-purpose-marketing",
+      "version": "1",
+      "description": "목적이 마케팅 등으로 변경: 별도 처리 근거 검토로 전환(미결)",
+      "role": "compliance",
+      "recipient": "internal_successor",
+      "purpose": "marketing",
+      "channel": "response",
+      "allowed_pii_types": ["account_number"],
+      "decision": "UNRESOLVED",
+      "permitted_form": "original",
+      "unresolved_note": "목적 외 이용(마케팅) 적법 근거 미검토"
+    },
+    {
+      "rule_id": "P-05-channel-personal-email",
+      "version": "1",
+      "description": "채널이 개인 이메일 등으로 변경: 전송 제한(승인 채널만 허용)",
+      "role": "compliance",
+      "recipient": "internal_successor",
+      "purpose": "handover",
+      "channel": "personal_email",
+      "allowed_pii_types": ["account_number"],
+      "decision": "DENY",
+      "permitted_form": "omitted",
+      "legal_ground": "[가상] 미승인 전송 경로 금지(조사.pdf 3.4 채널 정책)"
+    },
+    {
+      "rule_id": "P-06-successor-original",
+      "version": "1",
+      "description": "요약 대신 원문 전체 요청: 후임자 원문 열람 허용 여부 미결",
+      "role": "compliance",
+      "recipient": "internal_successor",
+      "purpose": "handover",
+      "channel": "response",
+      "allowed_pii_types": ["account_number"],
+      "decision": "UNRESOLVED",
+      "permitted_form": "original",
+      "unresolved_note": "정상 후임자에게 계좌·연락처 원문을 허용할지 Legal 결정 필요(업무 조사표 'INT-02 보완 필요')"
+    }
+  ]
+}
